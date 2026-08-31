@@ -1,0 +1,7 @@
+﻿venv/
+outputs/
+_work/
+__pycache__/
+.env
+*.mp4
+*.ass
