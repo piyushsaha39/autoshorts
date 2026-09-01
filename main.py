@@ -14,6 +14,11 @@ import os
 from pathlib import Path
 import shutil
 
+from pipeline.llm_selector import select_clips
+from pipeline.action_selector import select_action_clips  # ADD THIS LINE
+from pipeline.captions import build_captions
+from pipeline.render import render_clip
+
 from dotenv import load_dotenv
 
 from pipeline.download import download_video
@@ -66,12 +71,19 @@ def main() -> None:
     segments = transcribe(
         video_path, model_size=args.whisper_model, device=args.device, compute_type=args.compute_type
     )
-    print(f"      -> {len(segments)} segments")
-
     print(f"[3/4] Selecting highlights with {args.llm_model}...")
     candidates = select_clips(
         segments, model=args.llm_model, num_clips=args.num_clips, min_len=args.min_len, max_len=args.max_len
     )
+    
+    # --- NEW FALLBACK LOGIC ---
+    if not candidates:
+        print(f"[3.5/4] No dialogue detected. Triggering Audio Event Detection fallback...")
+        candidates = select_action_clips(
+            video_path, work_dir, num_clips=args.num_clips, min_len=args.min_len, max_len=args.max_len
+        )
+    # --------------------------
+
     candidates = candidates[: args.num_clips]
     print(f"      -> {len(candidates)} candidates kept")
 
