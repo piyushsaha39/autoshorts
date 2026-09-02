@@ -1,0 +1,52 @@
+# Caption style presets.
+#
+# IMPORTANT: "default" is set to match the CURRENT hardcoded look in
+# captions.py (Arial Black, bold, uppercase, amber highlight, 480px from
+# bottom). Selecting "default" (or leaving --caption-style unset) must
+# produce output indistinguishable from before this upgrade.
+#
+# Colors are in ASS/SSA &HAABBGGRR or &HBBGGRR hex (note: BGR order, not
+# RGB - reversed from what you'd expect). The amber/yellow values below
+# are close approximations of a typical amber highlight; if the exact
+# shade matters, pull the real value out of your current .ass output
+# rather than trusting these placeholders.
+
+default:
+  font: "Arial Black"
+  base_color: "&H00FFFFFF"       # white
+  highlight_color: "&H0000BFFF"  # amber
+  uppercase: true
+  bold: true
+  margin_v: 480
+  font_size: 72
+  outline: 3
+
+minimal:
+  font: "Helvetica Neue"
+  base_color: "&H00FFFFFF"
+  highlight_color: "&H00FFFFFF"  # no separate highlight color
+  uppercase: false
+  bold: false
+  margin_v: 200
+  font_size: 54
+  outline: 1
+
+mrbeast:
+  font: "Komika Axis"            # substitute a font you actually have installed
+  base_color: "&H0000FFFF"       # yellow
+  highlight_color: "&H000000FF"  # red
+  uppercase: true
+  bold: true
+  margin_v: 520
+  font_size: 96
+  outline: 6
+
+podcast_clean:
+  font: "Inter"
+  base_color: "&H00E6E6E6"       # light grey, lower third
+  highlight_color: "&H00E6E6E6"
+  uppercase: false
+  bold: false
+  margin_v: 160
+  font_size: 46
+  outline: 1

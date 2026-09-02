@@ -1,0 +1,28 @@
+# Platform render/caption-safe-zone profiles.
+#
+# "youtube_shorts" values match your CURRENT render.py defaults
+# (1080x1920, effectively no hard duration cap enforced today). Selecting
+# it (or leaving --platform unset) should not change existing output.
+
+youtube_shorts:
+  aspect: "9:16"
+  resolution: [1080, 1920]
+  max_duration_seconds: 60
+  caption_safe_zone_bottom_px: 220
+  caption_safe_zone_top_px: 100
+
+tiktok:
+  aspect: "9:16"
+  resolution: [1080, 1920]
+  max_duration_seconds: 90
+  # extra bottom margin: TikTok's right-side icon stack + native caption
+  # area eat into usable vertical space more than YouTube's UI does
+  caption_safe_zone_bottom_px: 280
+  caption_safe_zone_top_px: 100
+
+instagram_reels:
+  aspect: "9:16"
+  resolution: [1080, 1920]
+  max_duration_seconds: 90
+  caption_safe_zone_bottom_px: 250
+  caption_safe_zone_top_px: 100

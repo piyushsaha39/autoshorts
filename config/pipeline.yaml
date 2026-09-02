@@ -1,0 +1,65 @@
+# Master feature-flag configuration for AutoShorts upgrades.
+#
+# RULE: every flag below defaults to OFF / to the ORIGINAL pipeline
+# behavior. Nothing in this file changes what main.py does until you
+# flip a flag AND wire the corresponding module into main.py (see
+# IMPLEMENTATION_GUIDE.md for the exact wiring for each one).
+#
+# Flip ONE flag at a time, re-run on a test video, compare output, then
+# move to the next. Do not enable a whole phase at once.
+
+version: 1
+
+selection:
+  # "legacy"   -> unchanged: LLM-for-dialogue OR YAMNet-for-action, binary choice
+  # "ensemble" -> weighted-score ranking across all available selectors
+  mode: "legacy"
+  ensemble:
+    enabled: false
+    weights:
+      llm_narrative: 1.0
+      action_energy: 0.0
+      diarization: 0.0
+      emotion: 0.0
+      hook_strength: 0.0
+    # if fewer than this many selectors report a score for a candidate,
+    # fall back to legacy behavior for that candidate rather than guessing
+    min_selectors_available: 1
+
+scene_snap:
+  enabled: true
+  tolerance_seconds: 1.5
+
+editing:
+  silence_trim:
+    enabled: false
+    min_gap_ms: 700
+    padding_ms: 120
+  punch_ins:
+    enabled: false
+    zoom_amount: 1.08
+    ramp_seconds: 0.15
+  active_speaker_crop:
+    enabled: false
+
+captions:
+  style: "default"          # key into config/caption_styles.yaml
+  per_word_emphasis: false
+
+distribution:
+  metadata_gen:
+    enabled: true
+  platform_profile: "youtube_shorts"   # key into config/platform_profiles.yaml
+  auto_thumbnail:
+    enabled: false
+
+performance:
+  cache:
+    enabled: true            # safe to leave true: purely additive, identical
+                              # output, just skips redundant transcription/YAMNet
+                              # runs on re-execution of the same source file
+  hardware_accel:
+    enabled: false           # opt-in: encoder support varies by machine
+
+resumable_runs:
+  enabled: false

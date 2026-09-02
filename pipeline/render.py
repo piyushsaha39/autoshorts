@@ -1,7 +1,13 @@
-"""Cut a highlight out of the source video, reframe it to 9:16, burn in the
-karaoke captions, and encode the final Short -- all with ffmpeg (free)."""
-import subprocess
+"""Render vertical 9:16 clips using FFmpeg with black background framing and hardware acceleration."""
+
 from pathlib import Path
+import subprocess
+
+try:
+    from pipeline.hw_detect import get_video_encoder
+except ImportError:
+    def get_video_encoder(prefer_hw: bool = False) -> str:
+        return "h264_nvenc" if prefer_hw else "libx264"
 
 from .reframe import analyze_crop
 
@@ -21,22 +27,37 @@ def _probe_dimensions(video_path: Path) -> tuple[int, int]:
     return int(w), int(h)
 
 
-def _build_filter(mode: str, crop_x_ratio: float, src_w: int, src_h: int) -> str:
-    out_w = round(src_h * TARGET_W / TARGET_H)  # 9:16-wide slice at full source height
+def _build_filter(
+    src_w: int,
+    src_h: int,
+    crop_to_speaker: bool = False,
+    crop_x_ratio: float = 0.5,
+    zoom_landscape_200: bool = True,
+) -> str:
+    """Build FFmpeg video filter chain to produce strict 1080x1920 with black background."""
+    is_landscape = src_w > src_h
 
-    if mode == "crop" and out_w <= src_w:
-        x = crop_x_ratio * src_w - out_w / 2
-        x = max(0, min(x, src_w - out_w))
-        return f"crop={out_w}:{src_h}:{int(x)}:0,scale={TARGET_W}:{TARGET_H}"
+    # Mode 1: Center speaker crop (if enabled by user)
+    if crop_to_speaker:
+        out_w = round(src_h * TARGET_W / TARGET_H)
+        if out_w <= src_w:
+            x = crop_x_ratio * src_w - out_w / 2
+            x = max(0, min(x, src_w - out_w))
+            return f"crop={out_w}:{src_h}:{int(x)}:0,scale={TARGET_W}:{TARGET_H}"
 
-    # Pad mode: whole frame fits inside a blurred, zoomed copy of itself
-    # (the standard "blurred bars" look for content that can't be cropped).
+    # Mode 2: Landscape video zoomed 200% on black background (User Default)
+    if is_landscape and zoom_landscape_200:
+        # Scale to 200% of target width, crop horizontally to 1080, pad height to 1920 with black
+        return (
+            f"scale={TARGET_W * 2}:-2,"
+            f"crop={TARGET_W}:min(ih\\,{TARGET_H}):(iw-{TARGET_W})/2:(ih-min(ih\\,{TARGET_H}))/2,"
+            f"pad={TARGET_W}:{TARGET_H}:(ow-iw)/2:(oh-ih)/2:color=black"
+        )
+
+    # Mode 3: Fit whole frame inside 1080x1920 with black bars (no blur)
     return (
-        f"split=2[bg][fg];"
-        f"[bg]scale={TARGET_W}:{TARGET_H}:force_original_aspect_ratio=increase,"
-        f"crop={TARGET_W}:{TARGET_H},gblur=sigma=20[bg2];"
-        f"[fg]scale={TARGET_W}:-2[fg2];"
-        f"[bg2][fg2]overlay=(W-w)/2:(H-h)/2"
+        f"scale={TARGET_W}:{TARGET_H}:force_original_aspect_ratio=decrease,"
+        f"pad={TARGET_W}:{TARGET_H}:(ow-iw)/2:(oh-ih)/2:color=black"
     )
 
 
@@ -46,26 +67,42 @@ def render_clip(
     end: float,
     ass_path: Path,
     out_path: Path,
-    use_nvenc: bool = False,
+    crop_to_speaker: bool = False,
+    zoom_landscape_200: bool = True,
+    prefer_hw: bool = False,
 ) -> None:
     src_w, src_h = _probe_dimensions(source_video)
-    mode, crop_x_ratio = analyze_crop(str(source_video), start, end)
-    vf = _build_filter(mode, crop_x_ratio or 0.5, src_w, src_h)
-    # escape the path for ffmpeg's filter-graph string (colons need escaping on all OSes)
+
+    crop_x_ratio = 0.5
+    if crop_to_speaker:
+        _, crop_x_ratio_found = analyze_crop(str(source_video), start, end)
+        crop_x_ratio = crop_x_ratio_found or 0.5
+
+    vf = _build_filter(
+        src_w,
+        src_h,
+        crop_to_speaker=crop_to_speaker,
+        crop_x_ratio=crop_x_ratio,
+        zoom_landscape_200=zoom_landscape_200,
+    )
+
+    # Escape path for FFmpeg filtergraph
     escaped_ass = str(ass_path).replace("\\", "/").replace(":", "\\:")
     vf += f",subtitles='{escaped_ass}'"
 
-    codec = (
-        ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "20"]
-        if use_nvenc
-        else ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
-    )
+    encoder = get_video_encoder(prefer_hw=prefer_hw)
+    if encoder == "h264_nvenc":
+        codec_opts = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "20"]
+    else:
+        codec_opts = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
 
     cmd = [
         "ffmpeg", "-y",
-        "-ss", str(start), "-i", str(source_video), "-t", str(end - start),
+        "-ss", str(start),
+        "-i", str(source_video),
+        "-t", str(end - start),
         "-vf", vf,
-        *codec,
+        *codec_opts,
         "-c:a", "aac", "-b:a", "128k",
         str(out_path),
     ]

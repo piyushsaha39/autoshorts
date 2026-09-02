@@ -1,0 +1,20 @@
+# Additional dependencies for the AutoShorts upgrades.
+#
+# Install into a CLONE of your existing venv (not the original) so you can
+# roll back to a known-good environment with zero risk. See
+# IMPLEMENTATION_GUIDE.md "Environment setup" for the exact commands.
+
+#pyannote.audio>=3.1        # Phase 1.1 - speaker diarization
+#torch>=2.1                 # required by pyannote.audio; also used by pipeline/hw_detect.py
+scenedetect[opencv]>=0.6.3 # Phase 1.4 - scene-boundary snapping
+pyyaml>=6.0                # Phase 3 / 5 - config file loading
+numpy>=1.24                # Phase 2.3 - active-speaker correlation math
+
+# NOT listed here because your project already depends on them per the
+# architecture doc: faster-whisper, mediapipe, ffmpeg, pysubs2, tensorflow.
+
+# pyannote.audio's pretrained pipeline is gated on Hugging Face. Before
+# Phase 1.1 will work you must:
+#   1. Accept the user conditions at https://huggingface.co/pyannote/speaker-diarization-3.1
+#   2. Accept the user conditions at https://huggingface.co/pyannote/segmentation-3.0
+#   3. Create a HF access token and set it: export HF_TOKEN=hf_xxx
