@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime
 import json
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppresses TensorFlow C++ info and warnings
 from pathlib import Path
 import re
 import shutil

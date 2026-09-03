@@ -1,16 +1,5 @@
-"""Pick highlight-worthy clip candidates from the transcript using an LLM.
+"""Pick highlight-worthy clip candidates from the transcript using an LLM."""
 
-Uses LiteLLM so the same code works with any provider -- just change the
-model string and set the matching API key in .env:
-
-    "groq/llama-3.3-70b-versatile"    -> free tier, very fast   (needs GROQ_API_KEY)
-    "gemini/gemini-2.5-flash-lite"    -> free tier, huge context (needs GEMINI_API_KEY)
-    "ollama/qwen2.5:7b-instruct"      -> fully local/offline    (needs Ollama running)
-
-Because the LLM is only asked to pick segment INDICES (not to re-type
-timestamps), clip boundaries always land exactly on a real sentence
-boundary from the transcript -- no awkward mid-word cuts.
-"""
 import json
 import re
 from dataclasses import dataclass
@@ -29,19 +18,30 @@ class ClipCandidate:
     score: float
 
 
-PROMPT_TEMPLATE = """You are editing a video into short vertical clips. Below is a transcript, \
-split into numbered segments with timestamps in seconds.
+PROMPT_TEMPLATE = """You are a video editing API. Your ONLY job is to extract the {num_clips} most entertaining highlights from the transcript provided.
 
-Pick the {num_clips} best highlights. Rules:
-- You MUST pick candidates, even if the dialogue jumps around (like a trailer). Just find the most interesting parts.
-- Aim for durations between {min_len} and {max_len} seconds, but it does not have to be perfect.
-- Always start/end exactly on a segment boundary from the list below.
+You must output your response EXACTLY as a valid JSON object with a single key "clips", containing an array of objects. 
+DO NOT output any conversational text, explanations, or summaries.
+
+Example of EXACT required output:
+{{
+  "clips": [
+    {{
+      "start_segment": 0,
+      "end_segment": 5,
+      "title": "Hilarious opening joke",
+      "hook": "Wait, did you really just say that?",
+      "score": 9.5
+    }}
+  ]
+}}
+
+Rules:
+- Clip duration should be roughly between {min_len} and {max_len} seconds.
+- start_segment and end_segment must be integer IDs from the transcript below.
 - Do not pick overlapping ranges.
 
-Return ONLY a JSON array, no prose, no markdown fences:
-[{{"start_segment": int, "end_segment": int, "title": "short punchy title", "hook": "why this clip works, one sentence", "score": 0-10}}]
-
-Transcript segments:
+Transcript to analyze:
 {transcript}
 """
 
@@ -52,7 +52,7 @@ def _format_transcript(segments: list[Segment]) -> str:
 
 def select_clips(
     segments: list[Segment],
-    model: str = "groq/llama-3.3-70b-versatile",
+    model: str = "ollama/qwen2.5:7b-instruct",
     num_clips: int = 6,
     min_len: int = 10,
     max_len: int = 60,
@@ -64,18 +64,51 @@ def select_clips(
         transcript=_format_transcript(segments),
     )
 
-    response = litellm.completion(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.4,
-    )
+    # Force Ollama into native JSON mode and drop temperature to absolute zero
+    try:
+        response = litellm.completion(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a machine that outputs only valid JSON objects. Never generate conversational text."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        )
+    except Exception:
+        # Fallback if your specific LiteLLM version rejects response_format for local Ollama
+        response = litellm.completion(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a machine that outputs only valid JSON objects. Never generate conversational text."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2
+        )
+
     raw = response.choices[0].message.content.strip()
-    raw = re.sub(r"^```(json)?|```$", "", raw, flags=re.MULTILINE).strip()
+    
+    # Strip markdown code blocks
+    raw_cleaned = re.sub(r"^```(json)?|```$", "", raw, flags=re.MULTILINE).strip()
 
     try:
-        picks = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"LLM did not return valid JSON. Raw output:\n{raw}") from e
+        parsed_data = json.loads(raw_cleaned)
+    except json.JSONDecodeError:
+        # Aggressive Regex: Hunt for anything that looks like the "clips" JSON object
+        match = re.search(r"\{.*\"clips\"\s*:\s*\[.*\]\s*\}", raw, re.DOTALL)
+        if match:
+            try:
+                parsed_data = json.loads(match.group(0))
+            except json.JSONDecodeError as e:
+                raise ValueError(f"LLM extraction failed completely. Raw output:\n{raw}") from e
+        else:
+            raise ValueError(f"LLM stubbornly refused to output JSON. Raw output:\n{raw}")
+
+    # Handle cases where the model returns just the array instead of the requested object
+    if isinstance(parsed_data, list):
+        picks = parsed_data
+    else:
+        picks = parsed_data.get("clips", [])
 
     candidates: list[ClipCandidate] = []
     for p in picks:
@@ -83,8 +116,6 @@ def select_clips(
         if i is None or j is None or not (0 <= i <= j < len(segments)):
             continue
         start, end = segments[i].start, segments[j].end
-        
-        # REMOVED: Strict duration check. We keep everything the LLM selects.
 
         candidates.append(
             ClipCandidate(
